@@ -1,0 +1,12 @@
+Parsing lines.txt: 100%|██████████████| 13376/13376 [00:00<00:00, 1778225.37it/s]
+Building image lookup by searching recursively in: /Users/rahul/University-Subject codes/Neural Networks final project/TextOCR/data/lines
+Total valid image-transcription pairs: 13353
+Resizing images to fixed height to determine maximum width...
+First pass - resizing images: 100%|███████| 13353/13353 [00:32<00:00, 410.06it/s]
+Maximum width after resizing: 5125px
+Preprocessing images: resizing and padding...
+Second pass - preprocessing images: 100%|█| 13353/13353 [00:38<00:00, 343.41it/s]
+Preprocessed images shape: (13353, 128, 5125, 1)
+Vocabulary size: 82
+Preprocessing completed successfully.
+Preprocessed data saved to disk.
