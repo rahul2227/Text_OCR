@@ -29,15 +29,15 @@ class OCRDataset(Dataset):
         transcription = self.transcriptions[idx]
 
         # Inspect the shape of the image
-        print(f"Original image shape: {image.shape}")
+        # print(f"Original image shape: {image.shape}")
 
         if image.ndim == 3 and image.shape[-1] == 1:
             image = image.squeeze(-1)  # Now [H, W]
-            print(f"Squeezed image shape: {image.shape}")
+            # print(f"Squeezed image shape: {image.shape}")
 
         elif image.ndim == 4 and image.shape[-1] == 1:
             image = image.squeeze(-1).squeeze(-1)  # Now [H, W]
-            print(f"Squeezed image shape: {image.shape}")
+            # print(f"Squeezed image shape: {image.shape}")
 
         elif image.ndim == 2:
             pass
@@ -46,7 +46,7 @@ class OCRDataset(Dataset):
 
         # Convert image to tensor and add channel dimension
         image = torch.from_numpy(image).float().unsqueeze(0)  # [1, H, W]
-        print(f"Final image tensor shape: {image.shape}")
+        # print(f"Final image tensor shape: {image.shape}")
 
         # Ensure that image is 3D
         assert image.dim() == 3, f"Image tensor must be 3D, got {image.dim()}D"

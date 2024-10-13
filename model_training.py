@@ -92,7 +92,7 @@ def train(model, dataloader, criterion, optimizer, num_epochs=10):
 
 if __name__ == "__main__":
     # Define the number of epochs
-    num_epochs = 10
+    num_epochs = 1  # 10
 
     # Start training
     train(model, dataloader, ctc_loss, optimizer, num_epochs=num_epochs)

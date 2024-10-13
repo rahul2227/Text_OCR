@@ -167,6 +167,6 @@
         "80": "z",
         "81": "|"
     },
-    "max_width": 4096,
+    "max_width": 2048,
     "fixed_height": 128
 }
