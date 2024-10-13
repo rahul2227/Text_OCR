@@ -88,10 +88,15 @@ def collate_fn(batch):
 # Instantiate the dataset
 root_dir = get_project_root()
 dataset = OCRDataset(images_path=os.path.join(root_dir, 'data_preprocessing/preprocessed_images.npy'),
-                     encoded_transcriptions_path=os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions.json'),)
+                     encoded_transcriptions_path=os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions.json'),
+                     transform=None)
 
 # Define batch size
 batch_size = 16  # 32
 
 # Create DataLoader
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+dataloader = DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    collate_fn=collate_fn)

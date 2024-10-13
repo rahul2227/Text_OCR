@@ -9,6 +9,8 @@ from collections import defaultdict
 from tqdm import tqdm
 import argparse
 
+from torchvision import transforms
+
 
 # -------------------------------
 # 4. Data Preprocessing
@@ -217,13 +219,72 @@ def pad_image(image, max_width, fixed_height=128):
     return image_np
 
 
-def preprocess_images(df, fixed_height=128):
+# def preprocess_images(df, fixed_height=128):
+#     """
+#     Preprocess all images: load, grayscale, normalize, resize, pad.
+#
+#     Args:
+#         df (pandas.DataFrame): DataFrame with 'image_path' and 'transcription' columns.
+#         fixed_height (int): Desired image height.
+#
+#     Returns:
+#         numpy.ndarray: Array of preprocessed images.
+#         List[str]: List of corresponding transcriptions.
+#         int: Maximum width used for padding.
+#     """
+#     preprocessed_images = []
+#     transcriptions = []
+#     widths = []
+#
+#     print("Resizing images to fixed height to determine maximum width...")
+#
+#     # First pass: resize to fixed height and find maximum width
+#     for idx, row in tqdm(df.iterrows(), total=df.shape[0], desc="First pass - resizing images"):
+#         image = load_image(row['image_path'])
+#         if image is None:
+#             continue
+#         image = convert_to_grayscale(image)
+#         resized_image = resize_image(image, fixed_height)
+#         widths.append(resized_image.size[0])
+#
+#     if not widths:
+#         raise ValueError("No images were successfully resized. Please check your image files.")
+#
+#     max_width = max(widths)
+#     print(f"Maximum width after resizing: {max_width}px")
+#
+#     print("Preprocessing images: resizing and padding...")
+#
+#     # Second pass: resize to fixed height and pad to max_width
+#     for idx, row in tqdm(df.iterrows(), total=df.shape[0], desc="Second pass - preprocessing images"):
+#         image = load_image(row['image_path'])
+#         if image is None:
+#             continue
+#         image = convert_to_grayscale(image)
+#         resized_image = resize_image(image, fixed_height)
+#         padded_image = pad_image(resized_image, max_width, fixed_height)
+#         preprocessed_images.append(padded_image)
+#         transcriptions.append(row['transcription'])
+#
+#     if not preprocessed_images:
+#         raise ValueError("No images were successfully preprocessed. Please check your image files.")
+#
+#     preprocessed_images = np.array(preprocessed_images)
+#     preprocessed_images = preprocessed_images[..., np.newaxis]  # Add channel dimension
+#
+#     print(f"Preprocessed images shape: {preprocessed_images.shape}")
+#
+#     return preprocessed_images, transcriptions, max_width
+
+def preprocess_images(df, fixed_height=128, resize_image_smaller=False, smaller_max_width=4096):
     """
     Preprocess all images: load, grayscale, normalize, resize, pad.
 
     Args:
         df (pandas.DataFrame): DataFrame with 'image_path' and 'transcription' columns.
         fixed_height (int): Desired image height.
+        resize_image_smaller (bool): Whether to resize images to a smaller maximum width.
+        smaller_max_width (int): The maximum width to resize images to if resize_image_smaller is True.
 
     Returns:
         numpy.ndarray: Array of preprocessed images.
@@ -234,22 +295,26 @@ def preprocess_images(df, fixed_height=128):
     transcriptions = []
     widths = []
 
-    print("Resizing images to fixed height to determine maximum width...")
+    if resize_image_smaller:
+        max_width = smaller_max_width
+        print(f"Resizing images to fixed height {fixed_height}px and capping width at {max_width}px.")
+    else:
+        print("Resizing images to fixed height to determine maximum width...")
 
-    # First pass: resize to fixed height and find maximum width
-    for idx, row in tqdm(df.iterrows(), total=df.shape[0], desc="First pass - resizing images"):
-        image = load_image(row['image_path'])
-        if image is None:
-            continue
-        image = convert_to_grayscale(image)
-        resized_image = resize_image(image, fixed_height)
-        widths.append(resized_image.size[0])
+        # First pass: resize to fixed height and find maximum width
+        for idx, row in tqdm(df.iterrows(), total=df.shape[0], desc="First pass - resizing images"):
+            image = load_image(row['image_path'])
+            if image is None:
+                continue
+            image = convert_to_grayscale(image)
+            resized_image = resize_image(image, fixed_height)
+            widths.append(resized_image.size[0])
 
-    if not widths:
-        raise ValueError("No images were successfully resized. Please check your image files.")
+        if not widths:
+            raise ValueError("No images were successfully resized. Please check your image files.")
 
-    max_width = max(widths)
-    print(f"Maximum width after resizing: {max_width}px")
+        max_width = max(widths)
+        print(f"Maximum width after resizing: {max_width}px")
 
     print("Preprocessing images: resizing and padding...")
 
@@ -260,8 +325,26 @@ def preprocess_images(df, fixed_height=128):
             continue
         image = convert_to_grayscale(image)
         resized_image = resize_image(image, fixed_height)
-        padded_image = pad_image(resized_image, max_width, fixed_height)
-        preprocessed_images.append(padded_image)
+
+        if resize_image_smaller:
+            # Crop or pad the width to the smaller_max_width
+            if resized_image.size[0] > smaller_max_width:
+                # Resize to fixed height and smaller_max_width
+                resized_image = resized_image.resize((smaller_max_width, fixed_height), Image.Resampling.LANCZOS)
+            else:
+                # Pad with zeros (black pixels) on the right
+                pad_width = smaller_max_width - resized_image.size[0]
+                image_np = np.array(resized_image).astype(np.float32) / 255.0
+                image_np = np.pad(image_np, ((0, 0), (0, pad_width)), 'constant', constant_values=0.0)
+                resized_image = Image.fromarray((image_np * 255).astype(np.uint8))
+        else:
+            # Pad to the maximum width determined earlier
+            padded_image = pad_image(resized_image, max_width, fixed_height)
+            resized_image = Image.fromarray((padded_image * 255).astype(np.uint8))
+
+        # Convert to normalized numpy array
+        image_np = normalize_pixel_values(resized_image)
+        preprocessed_images.append(image_np)
         transcriptions.append(row['transcription'])
 
     if not preprocessed_images:
@@ -272,8 +355,12 @@ def preprocess_images(df, fixed_height=128):
 
     print(f"Preprocessed images shape: {preprocessed_images.shape}")
 
-    return preprocessed_images, transcriptions, max_width
+    if resize_image_smaller:
+        final_max_width = smaller_max_width
+    else:
+        final_max_width = max_width
 
+    return preprocessed_images, transcriptions, final_max_width
 
 # -------------------------------
 # 4.3. Label Encoding
@@ -328,7 +415,61 @@ def encode_transcriptions(transcriptions, char_to_idx):
 # Main Preprocessing Pipeline
 # -------------------------------
 
-def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128):
+# def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128):
+#     """
+#     Execute the complete preprocessing pipeline.
+#
+#     Args:
+#         ascii_dir (str): Path to the ascii/ directory.
+#         lines_dir (str): Path to the lines/ directory containing line images.
+#         fixed_height (int): Desired image height.
+#
+#     Returns:
+#         Dict: Dictionary containing preprocessed images, encoded labels, mappings, etc.
+#     """
+#     # 4.1. Parse Transcriptions
+#     lines_txt_path = os.path.join(ascii_dir, 'lines.txt')
+#     transcription_data = parse_lines_transcription(lines_txt_path)
+#
+#     # 4.1. Step 2: Create Mapping between images and transcriptions
+#     df = create_image_transcription_mapping(transcription_data, lines_dir)
+#     print(f"Total valid image-transcription pairs: {df.shape[0]}")
+#
+#     if df.empty:
+#         raise ValueError("DataFrame is empty after mapping. Please check your transcription and image files.")
+#
+#     # 4.2. Image Preprocessing
+#     preprocessed_images, transcriptions, max_width = preprocess_images(df, fixed_height)
+#
+#     # 4.3. Label Encoding
+#     char_to_idx, idx_to_char = create_vocabulary(transcriptions)
+#     encoded_transcriptions = encode_transcriptions(transcriptions, char_to_idx)
+#
+#     # Optionally, save mappings for future use
+#     mappings = {
+#         'char_to_idx': char_to_idx,
+#         'idx_to_char': idx_to_char,
+#         'max_width': max_width,
+#         'fixed_height': fixed_height
+#     }
+#
+#     with open('mappings.json', 'w', encoding='utf-8') as f:
+#         json.dump(mappings, f, ensure_ascii=False, indent=4)
+#
+#     print("Preprocessing completed successfully.")
+#
+#     return {
+#         'images': preprocessed_images,
+#         'transcriptions': transcriptions,
+#         'encoded_transcriptions': encoded_transcriptions,
+#         'char_to_idx': char_to_idx,
+#         'idx_to_char': idx_to_char,
+#         'max_width': max_width,
+#         'fixed_height': fixed_height
+#     }
+
+
+def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_image_smaller=False, smaller_max_width=4096):
     """
     Execute the complete preprocessing pipeline.
 
@@ -336,6 +477,8 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128):
         ascii_dir (str): Path to the ascii/ directory.
         lines_dir (str): Path to the lines/ directory containing line images.
         fixed_height (int): Desired image height.
+        resize_image_smaller (bool): Whether to resize images to a smaller maximum width.
+        smaller_max_width (int): The maximum width to resize images to if resize_image_smaller is True.
 
     Returns:
         Dict: Dictionary containing preprocessed images, encoded labels, mappings, etc.
@@ -352,7 +495,12 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128):
         raise ValueError("DataFrame is empty after mapping. Please check your transcription and image files.")
 
     # 4.2. Image Preprocessing
-    preprocessed_images, transcriptions, max_width = preprocess_images(df, fixed_height)
+    preprocessed_images, transcriptions, max_width = preprocess_images(
+        df,
+        fixed_height=fixed_height,
+        resize_image_smaller=resize_image_smaller,
+        smaller_max_width=smaller_max_width
+    )
 
     # 4.3. Label Encoding
     char_to_idx, idx_to_char = create_vocabulary(transcriptions)
@@ -381,11 +529,46 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128):
         'fixed_height': fixed_height
     }
 
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description="Preprocess IAM Handwriting Dataset for OCR")
+#     parser.add_argument('--data_dir', type=str, required=True, help='Path to the data/ directory')
+#     parser.add_argument('--fixed_height', type=int, default=128, help='Fixed height for image resizing')
+#     args = parser.parse_args()
+#
+#     ascii_dir = os.path.join(args.data_dir, 'ascii')
+#     lines_dir = os.path.join(args.data_dir, 'lines')
+#
+#     # Check if ascii_dir exists
+#     if not os.path.isdir(ascii_dir):
+#         raise NotADirectoryError(f"The ascii directory does not exist at path: {os.path.abspath(ascii_dir)}")
+#
+#     # Check if lines_dir exists
+#     if not os.path.isdir(lines_dir):
+#         raise NotADirectoryError(f"The lines directory does not exist at path: {os.path.abspath(lines_dir)}")
+#
+#     preprocessing_results = main_preprocessing_pipeline(
+#         ascii_dir=ascii_dir,
+#         lines_dir=lines_dir,
+#         fixed_height=args.fixed_height
+#     )
+#
+#     # Save preprocessed data for later use (optional)
+#     # For example, using numpy's save function
+#     np.save('preprocessed_images.npy', preprocessing_results['images'])
+#     with open('encoded_transcriptions.json', 'w', encoding='utf-8') as f:
+#         json.dump(preprocessing_results['encoded_transcriptions'], f, ensure_ascii=False, indent=4)
+#
+#     print("Preprocessed data saved to disk.")
+
+
+# data_preprocessing.py (continued)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess IAM Handwriting Dataset for OCR")
     parser.add_argument('--data_dir', type=str, required=True, help='Path to the data/ directory')
     parser.add_argument('--fixed_height', type=int, default=128, help='Fixed height for image resizing')
+    parser.add_argument('--resize_image_smaller', action='store_true', help='Resize images to a smaller maximum width')
+    parser.add_argument('--smaller_max_width', type=int, default=4096, help='Maximum width for smaller resizing')
     args = parser.parse_args()
 
     ascii_dir = os.path.join(args.data_dir, 'ascii')
@@ -402,7 +585,9 @@ if __name__ == "__main__":
     preprocessing_results = main_preprocessing_pipeline(
         ascii_dir=ascii_dir,
         lines_dir=lines_dir,
-        fixed_height=args.fixed_height
+        fixed_height=args.fixed_height,
+        resize_image_smaller=args.resize_image_smaller,
+        smaller_max_width=args.smaller_max_width
     )
 
     # Save preprocessed data for later use (optional)

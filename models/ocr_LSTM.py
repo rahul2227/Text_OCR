@@ -146,7 +146,6 @@ ctc_loss = nn.CTCLoss(blank=0, zero_infinity=True).to(device)
 # Defining the model
 # -------------------------------
 
-# TODO: get essential mappings like char_to_idx from json mappings
 root_dir = get_project_root()
 mappings_path = os.path.join(root_dir, 'data_preprocessing/mappings.json')
 # Load mappings
