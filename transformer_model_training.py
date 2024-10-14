@@ -1,91 +1,11 @@
-# transformer_model_training.py
-
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-
-import numpy as np
-import json
-import os
-import math
-
-from data_loaders.data_loader import OCRDataset, collate_fn
-from models.ocr_transformer import TransformerOCR
-from utils.utils import get_project_root  # Assuming you have this utility
-
-# Define device
-device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# root directory
-root_dir = get_project_root()
-mappings_path = os.path.join(root_dir, 'data_preprocessing/mappings.json')
-# Load mappings
-print("Loading mappings...")
-with open(mappings_path, 'r', encoding='utf-8') as f:
-    mappings = json.load(f)
-
-char_to_idx = mappings['char_to_idx']
-idx_to_char = {int(k): v for k, v in mappings['idx_to_char'].items()}  # Ensure keys are integers
-max_width = mappings['max_width']
-fixed_height = mappings['fixed_height']
-
-# Define essential parameters
-fixed_width = max_width  # From preprocessing
-num_classes = len(char_to_idx)  # Number of unique characters including <PAD> and <UNK>
-hidden_size = 512
-num_transformer_layers = 6
-nhead = 8
-dim_feedforward = 2048
-dropout = 0.1
-max_seq_length = 100  # Adjust based on maximum transcription length
-
-# Instantiate the model
-model = TransformerOCR(
-    img_feature_dim=512,              # From CNNFeatureExtractor
-    img_feature_seq_len=fixed_width // (2 ** 4),  # Assuming 4 max-pooling layers
-    d_model=hidden_size,
-    nhead=nhead,
-    num_encoder_layers=num_transformer_layers,
-    num_decoder_layers=num_transformer_layers,
-    dim_feedforward=dim_feedforward,
-    dropout=dropout,
-    num_classes=num_classes,
-    max_seq_length=max_seq_length
-).to(device)
-
-print(model)
-
-# Define the loss function (CTC Loss is not suitable for Transformer)
-# Instead, use CrossEntropyLoss with appropriate padding and masking
-criterion = nn.CrossEntropyLoss(ignore_index=char_to_idx['<PAD>']).to(device)
-
-# Define the optimizer
-learning_rate = 1e-4
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-# Instantiate the Dataset and DataLoader
-root_dir = get_project_root()
-dataset = OCRDataset(
-    images_path=os.path.join(root_dir, 'data_preprocessing/preprocessed_images.npy'),
-    encoded_transcriptions_path=os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions.json'),
-    transform=None  # No additional transforms needed as preprocessing is done
-)
-
-batch_size = 16  # Adjust based on memory constraints
-dataloader = DataLoader(
-    dataset,
-    batch_size=batch_size,
-    shuffle=True,
-    collate_fn=collate_fn
-)
+from models.ocr_LSTM import device
 
 # -------------------------------
 # 3. Define the Training Loop
 # -------------------------------
 
-def train_transformer(model, dataloader, criterion, optimizer, idx_to_char, num_epochs=10, clip=1.0):
+def train_transformer(model, dataloader, criterion, optimizer, char_to_idx, num_classes, max_seq_length, num_epochs=10, clip=1.0):
     model.train()
 
     for epoch in range(1, num_epochs + 1):
