@@ -1,30 +1,8 @@
-import os
 
-import torch
 import torch.nn as nn
-import torch.optim as optim
-import json
 
 from models.feature_extractor import CNNFeatureExtractor
-from utils.utils import get_project_root
-
-
-# TODO: Check from where the optimizer is being imported
-
-
-# -------------------------------
-# Check for GPU availability and set device to mpu if available
-# -------------------------------
-
-def set_torch_device():
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch.backends.mps.is_available():
-        device = torch.device('mps')
-    else:
-        device = torch.device('cpu')
-    return device
-
+from utils.utils import set_torch_device
 
 device = set_torch_device()
 print(f'Using device: {device}')
@@ -99,47 +77,3 @@ class OCRModel(nn.Module):
         return x
 
 
-# -------------------------------
-# Compiling model with CTC loss
-# -------------------------------
-
-ctc_loss = nn.CTCLoss(blank=0, zero_infinity=True).to(device)
-
-# -------------------------------
-# Defining the model
-# -------------------------------
-
-root_dir = get_project_root()
-mappings_path = os.path.join(root_dir, 'data_preprocessing/mappings.json')
-# Load mappings
-print("Loading mappings...")
-with open(mappings_path, 'r', encoding='utf-8') as f:
-    mappings = json.load(f)
-
-char_to_idx = mappings['char_to_idx']
-idx_to_char = {int(k): v for k, v in mappings['idx_to_char'].items()}  # Ensure keys are integers
-max_width = mappings['max_width']
-fixed_height = mappings['fixed_height']
-
-# Define essential parameters
-# fixed_height = 128
-fixed_width = max_width # 1024  # This should match the 'max_width' from preprocessing
-num_classes = len(char_to_idx)  # Number of unique characters including <PAD> and <UNK>
-hidden_size = 256
-num_lstm_layers = 2
-dropout = 0.1
-
-# Instantiate the model
-model = OCRModel(fixed_height=fixed_height,
-                 fixed_width=fixed_width,
-                 num_classes=num_classes,
-                 hidden_size=hidden_size,
-                 num_lstm_layers=num_lstm_layers,
-                 dropout=dropout).to(device)
-
-print(model)
-
-# Optimizer
-learning_rate = 1e-3
-
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)

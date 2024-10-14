@@ -11,15 +11,14 @@ from PIL import Image
 
 # Import the corrected DataLoader and Model
 from data_loaders.data_loader import dataloader  # Ensure this uses the corrected collate_fn
-from models.ocr_LSTM import device, model, ctc_loss, optimizer, OCRModel, fixed_height, fixed_width, num_classes, \
-    hidden_size, num_lstm_layers, dropout
+from models.ocr_LSTM import device
 
 
 # -------------------------------
-# Training the model
+# Training the model_LSTM
 # -------------------------------
 
-def train(model, dataloader, criterion, optimizer, num_epochs=10):
+def train_LSTM(model, dataloader, criterion, optimizer, num_epochs=10):
     model.train()
 
     for epoch in range(num_epochs):
@@ -57,60 +56,3 @@ def train(model, dataloader, criterion, optimizer, num_epochs=10):
         print(f"Epoch [{epoch+1}/{num_epochs}] Average Loss: {avg_loss:.4f}")
 
     print("Training Completed.")
-
-#
-# # Starting the training process
-# # Define the number of epochs
-# # temp epoch set to 1, default = 10
-# num_epochs = 1
-#
-# # Start training
-# train(model, dataloader, ctc_loss, optimizer, num_epochs=num_epochs)
-#
-# # Saving the models
-# # Save the trained model
-# torch.save(model.state_dict(), 'ocr_lstm_model.pth')
-# print("Model saved successfully.")
-#
-# # If loading is true then load the model
-#
-# # To load the model later
-# # model = OCRModel(fixed_height=fixed_height,
-# #                 fixed_width=fixed_width,
-# #                 num_classes=num_classes,
-# #                 hidden_size=hidden_size,
-# #                 num_lstm_layers=num_lstm_layers,
-# #                 dropout=dropout).to(device)
-# #
-# # model.load_state_dict(torch.load('ocr_lstm_model.pth'))
-# # model.eval()
-# # print("Model loaded and set to evaluation mode.")
-
-# -------------------------------
-# 4. Start Training
-# -------------------------------
-
-if __name__ == "__main__":
-    # Define the number of epochs
-    num_epochs = 1  # 10
-
-    # Start training
-    train(model, dataloader, ctc_loss, optimizer, num_epochs=num_epochs)
-
-    # Save the trained model
-    torch.save(model.state_dict(), 'ocr_lstm_model.pth')
-    print("Model saved successfully.")
-
-    # To load the model later
-    # model = OCRModel(
-    #     fixed_height=fixed_height,
-    #     fixed_width=fixed_width,
-    #     num_classes=num_classes,
-    #     hidden_size=hidden_size,
-    #     num_lstm_layers=num_lstm_layers,
-    #     dropout=dropout
-    # ).to(device)
-    #
-    # model.load_state_dict(torch.load('ocr_lstm_model.pth'))
-    # model.eval()
-    # print("Model loaded and set to evaluation mode.")

@@ -1,7 +1,10 @@
+import os
+
 import torch
 
 from data_loaders.data_loader import dataloader
-from models.ocr_LSTM import device, model
+from models.ocr_LSTM import device, OCRModel
+from utils.utils import get_mappings, LSTM_MODEL_SAVE_PATH
 
 
 # Function to decode encoded transcription
@@ -53,5 +56,26 @@ def evaluate(model, dataloader, idx_to_char):
 
 
 # Running the evaluations
-# Evaluate the model
-evaluate(model, dataloader, idx_to_char)
+# Evaluate the model_LSTM
+mappings = get_mappings()
+
+fixed_height = mappings['fixed_height']
+fixed_width = mappings['max_width']  # 1024  # This should match the 'max_width' from preprocessing
+num_classes = len(mappings['char_to_idx'])  # Number of unique characters including <PAD> and <UNK>
+hidden_size = 256
+num_lstm_layers = 2
+dropout = 0.1
+
+model_LSTM = OCRModel(
+                fixed_height=fixed_height,
+                fixed_width=fixed_width,
+                num_classes=num_classes,
+                hidden_size=hidden_size,
+                num_lstm_layers=num_lstm_layers,
+                dropout=dropout
+            ).to(device)
+
+model_LSTM.load_state_dict(torch.load(os.path.join(LSTM_MODEL_SAVE_PATH, 'ocr_lstm_model.pth')))
+model_LSTM.eval()
+print("OCR LSTM Model loaded and set to evaluation mode.")
+evaluate(model_LSTM, dataloader, mappings['idx_to_char'])

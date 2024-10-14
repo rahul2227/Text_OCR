@@ -18,7 +18,7 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
 
         pe = torch.zeros(max_len, d_model)  # (max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # (max_len, 1)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)  # (max_len, 1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))  # (d_model/2,)
 
         pe[:, 0::2] = torch.sin(position * div_term)  # Even indices
@@ -34,105 +34,161 @@ class PositionalEncoding(nn.Module):
         Returns:
             Tensor with positional encoding added
         """
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[:x.size(0)]
         return x
 
+
+
+# -----------------------------------------------------
+# Transformer Encoder
+# -----------------------------------------------------
+
+# models/transformer_ocr.py (continued)
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, input_dim, d_model=512, nhead=8, num_layers=6, dim_feedforward=2048, dropout=0.1):
+        """
+        Transformer Encoder.
+
+        Args:
+            input_dim (int): The dimension of input features.
+            d_model (int): The number of expected features in the encoder/decoder inputs.
+            nhead (int): The number of heads in the multiheadattention models.
+            num_layers (int): The number of sub-encoder-layers in the encoder.
+            dim_feedforward (int): The dimension of the feedforward network model.
+            dropout (float): The dropout value.
+        """
+        super(TransformerEncoder, self).__init__()
+        self.input_projection = nn.Linear(input_dim, d_model)
+        self.pos_encoder = PositionalEncoding(d_model)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead,
+                                                   dim_feedforward=dim_feedforward, dropout=dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+    def forward(self, src):
+        """
+        Args:
+            src (Tensor): Tensor of shape [seq_len, batch_size, input_dim]
+
+        Returns:
+            Tensor: Encoded features of shape [seq_len, batch_size, d_model]
+        """
+        src = self.input_projection(src)  # [seq_len, batch_size, d_model]
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src)
+        return output
+
+
+# -----------------------------------------------------
+# Transformer Decoder
+# -----------------------------------------------------
+
+# models/transformer_ocr.py (continued)
+
+class TransformerDecoder(nn.Module):
+    def __init__(self, output_dim, d_model=512, nhead=8, num_layers=6, dim_feedforward=2048, dropout=0.1):
+        """
+        Transformer Decoder.
+
+        Args:
+            output_dim (int): The number of output classes (e.g., number of characters).
+            d_model (int): The number of expected features in the encoder/decoder inputs.
+            nhead (int): The number of heads in the multiheadattention models.
+            num_layers (int): The number of sub-decoder-layers in the decoder.
+            dim_feedforward (int): The dimension of the feedforward network model.
+            dropout (float): The dropout value.
+        """
+        super(TransformerDecoder, self).__init__()
+        self.output_projection = nn.Embedding(output_dim, d_model)
+        self.pos_decoder = PositionalEncoding(d_model)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead,
+                                                   dim_feedforward=dim_feedforward, dropout=dropout)
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+        self.fc_out = nn.Linear(d_model, output_dim)
+
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None):
+        """
+        Args:
+            tgt (Tensor): Target sequence tensor of shape [tgt_seq_len, batch_size]
+            memory (Tensor): Encoder output tensor of shape [src_seq_len, batch_size, d_model]
+            tgt_mask (Tensor, optional): Mask for the target sequence.
+            memory_mask (Tensor, optional): Mask for the memory sequence.
+
+        Returns:
+            Tensor: Output logits of shape [tgt_seq_len, batch_size, output_dim]
+        """
+        tgt = self.output_projection(tgt)  # [tgt_seq_len, batch_size, d_model]
+        tgt = self.pos_decoder(tgt)
+        output = self.transformer_decoder(tgt, memory, tgt_mask=tgt_mask, memory_mask=memory_mask)
+        output = self.fc_out(output)  # [tgt_seq_len, batch_size, output_dim]
+        return output
 
 # -----------------------------------------------------
 # Transformer Encoder and Decoder layer
 # -----------------------------------------------------
 
 
+# models/transformer_ocr.py (continued)
+
 class TransformerOCR(nn.Module):
     def __init__(self,
-                 img_feature_dim=512,    # From CNN Feature Extractor
-                 img_feature_seq_len=256,  # Width after CNN pooling
-                 d_model=512,            # Embedding dimension for transformer
-                 nhead=8,                # Number of attention heads
-                 num_encoder_layers=6,   # Number of transformer encoder layers
-                 num_decoder_layers=6,   # Number of transformer decoder layers
-                 dim_feedforward=2048,   # Feedforward network dimension
-                 dropout=0.1,            # Dropout rate
-                 num_classes=82,         # Number of output classes (characters)
-                 max_seq_length=100):    # Maximum sequence length for output
+                 input_dim=512,
+                 output_dim=82,  # Number of classes including <PAD>, <UNK>, etc.
+                 d_model=512,
+                 nhead=8,
+                 num_encoder_layers=6,
+                 num_decoder_layers=6,
+                 dim_feedforward=2048,
+                 dropout=0.1):
+        """
+        Complete Transformer-based OCR Model.
+
+        Args:
+            input_dim (int): Dimension of input features from CNN.
+            output_dim (int): Number of output classes.
+            d_model (int): Dimension of model.
+            nhead (int): Number of attention heads.
+            num_encoder_layers (int): Number of Transformer encoder layers.
+            num_decoder_layers (int): Number of Transformer decoder layers.
+            dim_feedforward (int): Dimension of the feedforward network.
+            dropout (float): Dropout rate.
+        """
         super(TransformerOCR, self).__init__()
-
-        self.cnn = CNNFeatureExtractor()  # Reuse the CNN feature extractor
-
-        # After CNN, feature map shape: (batch_size, 512, 8, 256)
-        # We need to reshape it to (sequence_length, batch_size, embedding_dim)
-        self.img_feature_dim = img_feature_dim
-        self.img_feature_seq_len = img_feature_seq_len  # Typically the width after CNN pooling
-
-        # Project CNN features to d_model
-        self.fc = nn.Linear(img_feature_dim, d_model)
-
-        # Positional Encoding
-        self.positional_encoding = PositionalEncoding(d_model, max_len=self.img_feature_seq_len)
-
-        # Transformer
-        self.transformer = nn.Transformer(d_model=d_model,
-                                          nhead=nhead,
-                                          num_encoder_layers=num_encoder_layers,
-                                          num_decoder_layers=num_decoder_layers,
-                                          dim_feedforward=dim_feedforward,
-                                          dropout=dropout)
-
-        # Decoder: Assume target sequences have max length of max_seq_length
-        self.target_embedding = nn.Embedding(num_classes, d_model)
-        self.decoder_positional_encoding = PositionalEncoding(d_model, max_len=max_seq_length)
-
-        # Final output layer
-        self.output_layer = nn.Linear(d_model, num_classes)
-
-        # Generate a tensor to mask future tokens in the decoder (for autoregressive generation)
-        self.register_buffer("tgt_mask", self.generate_square_subsequent_mask(max_seq_length))
+        self.encoder = TransformerEncoder(input_dim=input_dim, d_model=d_model, nhead=nhead,
+                                         num_layers=num_encoder_layers, dim_feedforward=dim_feedforward,
+                                         dropout=dropout)
+        self.decoder = TransformerDecoder(output_dim=output_dim, d_model=d_model, nhead=nhead,
+                                         num_layers=num_decoder_layers, dim_feedforward=dim_feedforward,
+                                         dropout=dropout)
+        self.d_model = d_model
 
     def generate_square_subsequent_mask(self, sz):
         """
         Generate a square mask for the sequence. The masked positions are filled with float('-inf').
         Unmasked positions are filled with float(0.0).
+
+        Args:
+            sz (int): Size of the mask (sequence length).
+
+        Returns:
+            Tensor: Mask tensor of shape [sz, sz]
         """
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask  # (sz, sz)
+        return mask
 
     def forward(self, src, tgt):
         """
+        Forward pass of the Transformer OCR model.
+
         Args:
-            src: Tensor of shape (batch_size, 1, H, W)
-            tgt: Tensor of shape (batch_size, tgt_seq_len)
+            src (Tensor): Source sequence tensor of shape [src_seq_len, batch_size, input_dim]
+            tgt (Tensor): Target sequence tensor of shape [tgt_seq_len, batch_size]
+
         Returns:
-            Tensor of shape (tgt_seq_len, batch_size, num_classes)
+            Tensor: Output logits of shape [tgt_seq_len, batch_size, output_dim]
         """
-        # Feature Extraction
-        x = self.cnn(src)  # (batch_size, 512, 8, 256)
-
-        batch_size, channels, height, width = x.size()
-
-        # Flatten and reshape
-        x = x.permute(3, 0, 1, 2)  # (width, batch_size, channels, height)
-        x = x.contiguous().view(width, batch_size, channels * height)  # (width, batch_size, 512 * 8 = 4096)
-
-        # Project to d_model
-        x = self.fc(x)  # (width, batch_size, d_model)
-
-        # Add positional encoding
-        x = self.positional_encoding(x)  # (width, batch_size, d_model)
-
-        # Encoder
-        memory = self.transformer.encoder(x)  # (width, batch_size, d_model)
-
-        # Prepare target
-        tgt_seq_len = tgt.size(1)
-        tgt = tgt.permute(1, 0)  # (tgt_seq_len, batch_size)
-        tgt_emb = self.target_embedding(tgt)  # (tgt_seq_len, batch_size, d_model)
-        tgt_emb = self.decoder_positional_encoding(tgt_emb)  # (tgt_seq_len, batch_size, d_model)
-
-        # Decoder
-        output = self.transformer.decoder(tgt_emb, memory, tgt_mask=self.tgt_mask[:tgt_seq_len, :tgt_seq_len])  # (tgt_seq_len, batch_size, d_model)
-
-        # Output Layer
-        output = self.output_layer(output)  # (tgt_seq_len, batch_size, num_classes)
-
+        memory = self.encoder(src)  # [src_seq_len, batch_size, d_model]
+        tgt_mask = self.generate_square_subsequent_mask(tgt.size(0)).to(src.device)  # [tgt_seq_len, tgt_seq_len]
+        output = self.decoder(tgt, memory, tgt_mask=tgt_mask)
         return output

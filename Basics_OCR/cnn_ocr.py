@@ -22,5 +22,5 @@ class OCRModel(nn.Module):
         return x
 
 
-# Instantiate the model
+# Instantiate the model_LSTM
 model = OCRModel().to(torch.device("mps"))

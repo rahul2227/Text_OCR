@@ -4,9 +4,6 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import json
 import os
-import matplotlib.pyplot as plt
-
-from PIL import Image
 
 from utils.utils import get_project_root
 

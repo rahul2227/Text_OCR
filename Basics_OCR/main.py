@@ -8,15 +8,14 @@ import torch.nn.functional as F
 from cnn_ocr import model
 from processing import train_loader, test_loader
 
-# Defining the loss in the model
+# Defining the loss in the model_LSTM
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Training the model
+# Training the model_LSTM
 # Training loop
 num_epochs = 50
 device = torch.device("mps")
-
 
 model.train()
 for epoch in range(num_epochs):
