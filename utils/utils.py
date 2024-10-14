@@ -3,11 +3,7 @@ import os
 from pathlib import Path
 
 import torch
-
-IMAGES_PATH = os.path.join(Path(__file__).parent.parent, 'data_preprocessing/preprocessed_images.npy')
-ENCODED_TRANSCRIPTION_PATH = os.path.join(Path(__file__).parent.parent, 'data_preprocessing/encoded_transcriptions.json')
-LSTM_MODEL_SAVE_PATH = os.path.join(Path(__file__).parent.parent, 'models/LSTM')
-TRANSFORMER_MODEL_SAVE_PATH = os.path.join(Path(__file__).parent.parent, 'models/TRANSFORMER')
+from matplotlib.widgets import EllipseSelector
 
 
 # -------------------------------
@@ -16,15 +12,26 @@ TRANSFORMER_MODEL_SAVE_PATH = os.path.join(Path(__file__).parent.parent, 'models
 def get_project_root() -> Path:
     return Path(__file__).parent.parent
 
+root_dir = get_project_root()
+IMAGES_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/preprocessed_images_Transformer.npy')
+ENCODED_TRANSCRIPTION_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions_Transformer.json')
+LSTM_MODEL_SAVE_PATH = os.path.join(root_dir, 'models/LSTM')
+TRANSFORMER_MODEL_SAVE_PATH = os.path.join(root_dir, 'models/TRANSFORMER')
+MAPPINGS_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/mappings_Transformer.json')
+MAPPINGS_PATH_LSTM = os.path.join(root_dir, 'data_preprocessing/mappings_LSTM.json')
 
 # ------------------------------------
 # Get mapping from preprocessed data
 # ------------------------------------
 
-def get_mappings():
+def get_mappings(model_type='LSTM'):
     print('loading mappings')
-    root_dir = get_project_root()
-    mappings_path = os.path.join(root_dir, 'data_preprocessing/mappings.json')
+
+    if model_type == 'LSTM':
+        mappings_path = MAPPINGS_PATH_LSTM
+    else:
+        mappings_path = MAPPINGS_PATH_TRANSFORMER
+
     # Load mappings
     print("Loading mappings...")
     with open(mappings_path, 'r', encoding='utf-8') as f:

@@ -1,10 +1,16 @@
+# data_loader.py
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 import numpy as np
 import json
 import os
+import matplotlib.pyplot as plt
 
+from PIL import Image
+
+# Assuming utils/utils.py contains get_project_root function
 from utils.utils import get_project_root
 
 
@@ -53,13 +59,14 @@ class OCRDataset(Dataset):
 
         return image, transcription
 
+
 # -------------------------------
-# For handling the batching appropriately for CTC loss
+# For handling the batching appropriately
 # -------------------------------
 
-def collate_fn(batch):
+def collate_fn_lstm(batch):
     """
-    Collate function to be used with DataLoader for CTC loss.
+    Collate function to be used with DataLoader for LSTM (CTC Loss).
     """
     images, transcriptions = zip(*batch)
     images = torch.stack(images, 0)  # (batch_size, 1, H, W)
@@ -78,22 +85,92 @@ def collate_fn(batch):
     return images, transcriptions, input_lengths, target_lengths
 
 
+def collate_fn_transformer(batch):
+    """
+    Collate function to be used with DataLoader for Transformer (CrossEntropy Loss).
+    Prepares target input and target output sequences.
+    """
+    images, transcriptions = zip(*batch)
+    images = torch.stack(images, 0)  # (batch_size, 1, H, W)
+
+    # Find the maximum target sequence length in the batch
+    max_tgt_len = max([len(t) for t in transcriptions])
+
+    # Prepare target sequences with padding
+    padded_transcriptions = []
+    for t in transcriptions:
+        pad_length = max_tgt_len - len(t)
+        padded_t = torch.cat(
+            [t, torch.full((pad_length,), fill_value=0, dtype=torch.long)])  # Assuming <PAD> is index 0
+        padded_transcriptions.append(padded_t)
+
+    # Convert to tensor: (batch_size, max_tgt_len)
+    padded_transcriptions = torch.stack(padded_transcriptions, 0)
+
+    # Prepare decoder input by shifting right and adding <SOS> token
+    # Assuming <SOS> is index 2 for Transformer
+    sos_index = 2
+    eos_index = 3
+    tgt_input = torch.full((padded_transcriptions.size(0), 1), fill_value=sos_index, dtype=torch.long)
+    tgt_input = torch.cat([tgt_input, padded_transcriptions[:, :-1]], dim=1)  # (batch_size, max_tgt_len)
+
+    # Target output is the actual transcription
+    tgt_output = padded_transcriptions  # (batch_size, max_tgt_len)
+
+    return images, tgt_input, tgt_output
+
+
 # -------------------------------
 # Creating Data Loader
 # -------------------------------
 
-# Instantiate the dataset
-root_dir = get_project_root()
-dataset = OCRDataset(images_path=os.path.join(root_dir, 'data_preprocessing/preprocessed_images.npy'),
-                     encoded_transcriptions_path=os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions.json'),
-                     transform=None)
+def get_dataloader(model_type='LSTM', batch_size=16):
+    """
+    Create DataLoader based on the model type.
 
-# Define batch size
-batch_size = 16  # 32
+    Args:
+        model_type (str): 'LSTM' or 'Transformer'.
+        batch_size (int): Batch size.
 
-# Create DataLoader
-dataloader = DataLoader(
-    dataset,
-    batch_size=batch_size,
-    shuffle=True,
-    collate_fn=collate_fn)
+    Returns:
+        DataLoader: PyTorch DataLoader instance.
+    """
+    # Instantiate the dataset
+    root_dir = get_project_root()
+
+    # Determine filenames based on model type
+    preprocessed_images_filename = f'preprocessed_images_{model_type}.npy'
+    encoded_transcriptions_filename = f'encoded_transcriptions_{model_type}.json'
+
+    images_path = os.path.join(root_dir, 'data_preprocessing', preprocessed_images_filename)
+    encoded_transcriptions_path = os.path.join(root_dir, 'data_preprocessing', encoded_transcriptions_filename)
+
+    # Check if files exist
+    if not os.path.exists(images_path):
+        raise FileNotFoundError(f"Preprocessed images not found at {images_path}")
+    if not os.path.exists(encoded_transcriptions_path):
+        raise FileNotFoundError(f"Encoded transcriptions not found at {encoded_transcriptions_path}")
+
+    dataset = OCRDataset(
+        images_path=images_path,
+        encoded_transcriptions_path=encoded_transcriptions_path,
+        transform=None
+    )
+
+    # Select appropriate collate function
+    if model_type == 'LSTM':
+        collate_fn = collate_fn_lstm
+    elif model_type == 'Transformer':
+        collate_fn = collate_fn_transformer
+    else:
+        raise ValueError("model_type must be either 'LSTM' or 'Transformer'.")
+
+    # Create DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+
+    return dataloader

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 # Import the corrected DataLoader and Model
-from data_loaders.data_loader import dataloader  # Ensure this uses the corrected collate_fn
+from data_loaders.data_loader import get_dataloader  # Ensure this uses the corrected collate_fn
 from models.ocr_LSTM import device
 
 

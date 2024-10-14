@@ -2,6 +2,8 @@
 /Basics_OCR/data/
 # npy file for preprocessed images
 /data_preprocessing/preprocessed_images.npy
+/data_preprocessing/preprocessed_images_LSTM.npy
+/data_preprocessing/preprocessed_images_Transformer.npy
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template

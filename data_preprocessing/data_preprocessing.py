@@ -1,3 +1,5 @@
+# data_preprocessing.py
+
 import os
 import re
 import numpy as np
@@ -305,16 +307,18 @@ def preprocess_images(df, fixed_height=128, resize_image_smaller=False, smaller_
 
     return preprocessed_images, transcriptions, final_max_width
 
+
 # -------------------------------
 # 4.3. Label Encoding
 # -------------------------------
 
-def create_vocabulary(transcriptions):
+def create_vocabulary(transcriptions, model_type='LSTM'):
     """
     Create a vocabulary of unique characters in the dataset.
 
     Args:
         transcriptions (List[str]): List of transcription strings.
+        model_type (str): Target model type ('LSTM' or 'Transformer').
 
     Returns:
         Dict[str, int]: Mapping from character to unique integer index.
@@ -325,31 +329,42 @@ def create_vocabulary(transcriptions):
         vocab.update(list(text))
     vocab = sorted(list(vocab))
 
-    # Add special tokens if needed
-    vocab = ['<PAD>', '<UNK>'] + vocab  # Padding and Unknown tokens
+    # Add special tokens based on model type
+    if model_type == 'Transformer':
+        special_tokens = ['<PAD>', '<UNK>', '<SOS>', '<EOS>']
+    else:  # LSTM
+        special_tokens = ['<PAD>', '<UNK>']
+
+    vocab = special_tokens + vocab  # Prepend special tokens
 
     char_to_idx = {char: idx for idx, char in enumerate(vocab)}
     idx_to_char = {idx: char for char, idx in char_to_idx.items()}
 
-    print(f"Vocabulary size: {len(vocab)}")
+    print(f"Vocabulary size for {model_type}: {len(vocab)}")
 
     return char_to_idx, idx_to_char
 
 
-def encode_transcriptions(transcriptions, char_to_idx):
+def encode_transcriptions(transcriptions, char_to_idx, model_type='LSTM'):
     """
     Encode transcriptions into sequences of integer indices.
 
     Args:
         transcriptions (List[str]): List of transcription strings.
         char_to_idx (Dict[str, int]): Character to index mapping.
+        model_type (str): Target model type ('LSTM' or 'Transformer').
 
     Returns:
         List[List[int]]: Encoded transcriptions.
     """
     encoded_transcriptions = []
     for text in transcriptions:
-        encoded = [char_to_idx.get(char, char_to_idx['<UNK>']) for char in text]
+        if model_type == 'Transformer':
+            # Add <SOS> at the beginning and <EOS> at the end
+            encoded = [char_to_idx['<SOS>']] + [char_to_idx.get(char, char_to_idx['<UNK>']) for char in text] + [
+                char_to_idx['<EOS>']]
+        else:  # LSTM
+            encoded = [char_to_idx.get(char, char_to_idx['<UNK>']) for char in text]
         encoded_transcriptions.append(encoded)
     return encoded_transcriptions
 
@@ -359,16 +374,18 @@ def encode_transcriptions(transcriptions, char_to_idx):
 # -------------------------------
 
 
-def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_image_smaller=False, smaller_max_width=4096):
+def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_image_smaller=False,
+                                smaller_max_width=4096, model_type='LSTM'):
     """
     Execute the complete preprocessing pipeline.
 
     Args:
         ascii_dir (str): Path to the ascii/ directory.
-        lines_dir (str): Path to the lines/ directory containing line images.
+        lines_dir (str): Path to the lines/ directory containing line image files.
         fixed_height (int): Desired image height.
         resize_image_smaller (bool): Whether to resize images to a smaller maximum width.
         smaller_max_width (int): The maximum width to resize images to if resize_image_smaller is True.
+        model_type (str): Target model type ('LSTM' or 'Transformer').
 
     Returns:
         Dict: Dictionary containing preprocessed images, encoded labels, mappings, etc.
@@ -393,8 +410,8 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_i
     )
 
     # 4.3. Label Encoding
-    char_to_idx, idx_to_char = create_vocabulary(transcriptions)
-    encoded_transcriptions = encode_transcriptions(transcriptions, char_to_idx)
+    char_to_idx, idx_to_char = create_vocabulary(transcriptions, model_type=model_type)
+    encoded_transcriptions = encode_transcriptions(transcriptions, char_to_idx, model_type=model_type)
 
     # Optionally, save mappings for future use
     mappings = {
@@ -404,8 +421,25 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_i
         'fixed_height': fixed_height
     }
 
-    with open('mappings.json', 'w', encoding='utf-8') as f:
+    # Save mappings with model type in filename
+    mappings_filename = f'mappings_{model_type}.json'
+    with open(mappings_filename, 'w', encoding='utf-8') as f:
         json.dump(mappings, f, ensure_ascii=False, indent=4)
+
+    print(f"Mappings saved to {mappings_filename}")
+
+    # Save encoded transcriptions with model type in filename
+    encoded_transcriptions_filename = f'encoded_transcriptions_{model_type}.json'
+    with open(encoded_transcriptions_filename, 'w', encoding='utf-8') as f:
+        json.dump(encoded_transcriptions, f, ensure_ascii=False, indent=4)
+
+    print(f"Encoded transcriptions saved to {encoded_transcriptions_filename}")
+
+    # Save preprocessed images with model type in filename if needed
+    # If preprocessed images are same for both models, you can omit this or keep it separate
+    preprocessed_images_filename = f'preprocessed_images_{model_type}.npy'
+    np.save(preprocessed_images_filename, preprocessed_images)
+    print(f"Preprocessed images saved to {preprocessed_images_filename}")
 
     print("Preprocessing completed successfully.")
 
@@ -419,12 +453,19 @@ def main_preprocessing_pipeline(ascii_dir, lines_dir, fixed_height=128, resize_i
         'fixed_height': fixed_height
     }
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess IAM Handwriting Dataset for OCR")
     parser.add_argument('--data_dir', type=str, required=True, help='Path to the data/ directory')
     parser.add_argument('--fixed_height', type=int, default=128, help='Fixed height for image resizing')
     parser.add_argument('--resize_image_smaller', action='store_true', help='Resize images to a smaller maximum width')
     parser.add_argument('--smaller_max_width', type=int, default=4096, help='Maximum width for smaller resizing')
+
+    # Define mutually exclusive group for model type
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--LSTM', action='store_true', help='Preprocess data for LSTM model')
+    group.add_argument('--transformer', action='store_true', help='Preprocess data for Transformer model')
+
     args = parser.parse_args()
 
     ascii_dir = os.path.join(args.data_dir, 'ascii')
@@ -438,18 +479,27 @@ if __name__ == "__main__":
     if not os.path.isdir(lines_dir):
         raise NotADirectoryError(f"The lines directory does not exist at path: {os.path.abspath(lines_dir)}")
 
+    # Determine model type
+    if args.LSTM:
+        model_type = 'LSTM'
+    elif args.transformer:
+        model_type = 'Transformer'
+    else:
+        raise ValueError("Either --LSTM or --transformer must be specified.")
+
+    # Execute preprocessing
     preprocessing_results = main_preprocessing_pipeline(
         ascii_dir=ascii_dir,
         lines_dir=lines_dir,
         fixed_height=args.fixed_height,
         resize_image_smaller=args.resize_image_smaller,
-        smaller_max_width=args.smaller_max_width
+        smaller_max_width=args.smaller_max_width,
+        model_type=model_type
     )
 
-    # Save preprocessed data for later use (optional)
-    # For example, using numpy's save function
-    np.save('preprocessed_images.npy', preprocessing_results['images'])
-    with open('encoded_transcriptions.json', 'w', encoding='utf-8') as f:
-        json.dump(preprocessing_results['encoded_transcriptions'], f, ensure_ascii=False, indent=4)
+    # Note:
+    # The preprocessed images are saved separately for each model type.
+    # Depending on your training setup, you might want to handle this differently.
+    # For example, if both models use the same images, you can save images without model type suffix.
 
     print("Preprocessed data saved to disk.")

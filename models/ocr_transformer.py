@@ -1,8 +1,6 @@
-
 import torch
 import torch.nn as nn
 import math
-
 from models.feature_extractor import CNNFeatureExtractor
 
 
@@ -43,8 +41,6 @@ class PositionalEncoding(nn.Module):
 # Transformer Encoder
 # -----------------------------------------------------
 
-# models/transformer_ocr.py (continued)
-
 class TransformerEncoder(nn.Module):
     def __init__(self, input_dim, d_model=512, nhead=8, num_layers=6, dim_feedforward=2048, dropout=0.1):
         """
@@ -82,8 +78,6 @@ class TransformerEncoder(nn.Module):
 # -----------------------------------------------------
 # Transformer Decoder
 # -----------------------------------------------------
-
-# models/transformer_ocr.py (continued)
 
 class TransformerDecoder(nn.Module):
     def __init__(self, output_dim, d_model=512, nhead=8, num_layers=6, dim_feedforward=2048, dropout=0.1):
@@ -128,11 +122,9 @@ class TransformerDecoder(nn.Module):
 # -----------------------------------------------------
 
 
-# models/transformer_ocr.py (continued)
-
 class TransformerOCR(nn.Module):
     def __init__(self,
-                 input_dim=512,
+                 input_dim=2048,  # Updated to match CNN's output feature dimension
                  output_dim=82,  # Number of classes including <PAD>, <UNK>, etc.
                  d_model=512,
                  nhead=8,
@@ -154,12 +146,13 @@ class TransformerOCR(nn.Module):
             dropout (float): Dropout rate.
         """
         super(TransformerOCR, self).__init__()
+        self.cnn = CNNFeatureExtractor()  # Ensure this class outputs [batch_size, feature_dim, H', W']
         self.encoder = TransformerEncoder(input_dim=input_dim, d_model=d_model, nhead=nhead,
-                                         num_layers=num_encoder_layers, dim_feedforward=dim_feedforward,
-                                         dropout=dropout)
+                                          num_layers=num_encoder_layers, dim_feedforward=dim_feedforward,
+                                          dropout=dropout)
         self.decoder = TransformerDecoder(output_dim=output_dim, d_model=d_model, nhead=nhead,
-                                         num_layers=num_decoder_layers, dim_feedforward=dim_feedforward,
-                                         dropout=dropout)
+                                          num_layers=num_decoder_layers, dim_feedforward=dim_feedforward,
+                                          dropout=dropout)
         self.d_model = d_model
 
     def generate_square_subsequent_mask(self, sz):
@@ -177,18 +170,36 @@ class TransformerOCR(nn.Module):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
-    def forward(self, src, tgt):
+    def forward(self, images, tgt):
         """
         Forward pass of the Transformer OCR model.
 
         Args:
-            src (Tensor): Source sequence tensor of shape [src_seq_len, batch_size, input_dim]
-            tgt (Tensor): Target sequence tensor of shape [tgt_seq_len, batch_size]
+            images (Tensor): Images tensor of shape [batch_size, 1, H, W]
+            tgt (Tensor): Target sequence tensor of shape [batch_size, tgt_seq_len]
 
         Returns:
             Tensor: Output logits of shape [tgt_seq_len, batch_size, output_dim]
         """
-        memory = self.encoder(src)  # [src_seq_len, batch_size, d_model]
-        tgt_mask = self.generate_square_subsequent_mask(tgt.size(0)).to(src.device)  # [tgt_seq_len, tgt_seq_len]
-        output = self.decoder(tgt, memory, tgt_mask=tgt_mask)
+        # Pass images through CNNFeatureExtractor
+        cnn_features = self.cnn(images)  # [batch_size, feature_dim, H', W']
+
+        # Flatten CNN features to [batch_size, feature_dim, H'*W']
+        batch_size, feature_dim, H, W = cnn_features.size()
+        src = cnn_features.view(batch_size, feature_dim, -1)  # [batch_size, feature_dim, seq_len]
+
+        # Permute to [seq_len, batch_size, feature_dim]
+        src = src.permute(2, 0, 1)  # [seq_len, batch_size, feature_dim]
+
+        # Pass through Transformer Encoder
+        memory = self.encoder(src)  # [seq_len, batch_size, d_model]
+
+        # Transpose tgt to [tgt_seq_len, batch_size]
+        tgt = tgt.permute(1, 0)  # [tgt_seq_len, batch_size]
+
+        # Generate tgt_mask
+        tgt_mask = self.generate_square_subsequent_mask(tgt.size(0)).to(images.device)  # [tgt_seq_len, tgt_seq_len]
+
+        # Pass through Transformer Decoder
+        output = self.decoder(tgt, memory, tgt_mask=tgt_mask)  # [tgt_seq_len, batch_size, output_dim]
         return output

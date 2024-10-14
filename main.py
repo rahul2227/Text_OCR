@@ -1,17 +1,21 @@
+import os
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'  # Enable MPS fallback to CPU
+# os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'
+
 import argparse
 import json
-import os
+
 
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
 
-from data_loaders.data_loader import dataloader, OCRDataset, collate_fn  # Ensure this uses the corrected collate_fn
+from data_loaders.data_loader import get_dataloader # Ensure this uses the corrected collate_fn
 from model_training import train_LSTM
 from models.ocr_LSTM import OCRModel
 from models.ocr_transformer import TransformerOCR
 from transformer_model_training import train_transformer
-from utils.utils import get_mappings, IMAGES_PATH, ENCODED_TRANSCRIPTION_PATH, set_torch_device, \
+from utils.utils import get_mappings, set_torch_device, \
     TRANSFORMER_MODEL_SAVE_PATH, LSTM_MODEL_SAVE_PATH
 
 # -------------------------------
@@ -20,54 +24,17 @@ from utils.utils import get_mappings, IMAGES_PATH, ENCODED_TRANSCRIPTION_PATH, s
 
 device = set_torch_device()
 
-# def train_LSTM(model, dataloader, criterion, optimizer, num_epochs=10):
-#     model.train()
-#
-#     for epoch in range(num_epochs):
-#         epoch_loss = 0.0
-#         for batch_idx, (images, transcriptions, input_lengths, target_lengths) in enumerate(dataloader):
-#             images = images.to(device)  # (batch_size, 1, H, W)
-#             transcriptions = transcriptions.to(device)  # (sum(target_lengths))
-#             input_lengths = input_lengths.to(device)    # (batch_size)
-#             target_lengths = target_lengths.to(device)  # (batch_size)
-#
-#             # Debugging: Print tensor shapes for the first batch of each epoch
-#             if batch_idx == 0:
-#                 print(f"Epoch {epoch+1}, Batch {batch_idx+1}")
-#                 print(f"Images shape: {images.shape}")  # Expected: [batch_size, 1, 128, 5125]
-#                 print(f"Transcriptions shape: {transcriptions.shape}")  # Expected: [sum(target_lengths)]
-#                 print(f"Input lengths shape: {input_lengths.shape}")  # Expected: [batch_size]
-#                 print(f"Target lengths shape: {target_lengths.shape}")  # Expected: [batch_size]")
-#
-#             optimizer.zero_grad()
-#
-#             # Forward pass
-#             outputs = model(images)  # (T, N, C) where T = W', N = batch_size, C = num_classes
-#
-#             # CTC Loss expects (T, N, C)
-#             loss = criterion(outputs, transcriptions, input_lengths, target_lengths)
-#             loss.backward()
-#             optimizer.step()
-#
-#             epoch_loss += loss.item()
-#
-#             if (batch_idx + 1) % 100 == 0:
-#                 print(f"Epoch [{epoch+1}/{num_epochs}], Step [{batch_idx+1}/{len(dataloader)}], Loss: {loss.item():.4f}")
-#
-#         avg_loss = epoch_loss / len(dataloader)
-#         print(f"Epoch [{epoch+1}/{num_epochs}] Average Loss: {avg_loss:.4f}")
-#
-#     print("Training Completed.")
-
-
 # -------------------------------
 # 4. Start Training
 # -------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PyTorch OCR Model')
-    parser.add_argument('--train_LSTM', type=bool, default=False, help='train LSTM', required=False)
-    parser.add_argument('--train_transformer', type=bool, default=False, help='train transformer', required=False)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--train_LSTM', type=bool, default=False, help='train LSTM')
+    group.add_argument('--train_transformer', type=bool, default=False, help='train transformer')
+
+
     parser.add_argument('--num_epochs', type=int, default=1, help='number of epochs', required=False)
     parser.add_argument('--batch_size', type=int, default=16, help='number of epochs', required=False)
     # arguments for model save and load
@@ -77,6 +44,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     num_epochs = args.num_epochs
     batch_size = args.batch_size
+
+    # Validate arguments
+    if args.train_transformer and args.train_LSTM:
+        raise ValueError("Cannot train both Transformer and LSTM simultaneously. Choose one.")
+    if not args.train_transformer and not args.train_LSTM:
+        raise ValueError("Specify at least one model to train: --train_transformer or --train_LSTM")
+
 
     # getting the mappings of the preprocessed data
     mappings = get_mappings()
@@ -114,8 +88,10 @@ if __name__ == "__main__":
 
         optimizer = optim.Adam(model_LSTM.parameters(), lr=learning_rate)
 
+        data_loader = get_dataloader(model_type='LSTM',batch_size = batch_size)
+
         # Start training
-        train_LSTM(model_LSTM, dataloader, ctc_loss, optimizer, num_epochs=num_epochs)
+        train_LSTM(model_LSTM, data_loader, ctc_loss, optimizer, num_epochs=num_epochs)
 
         if args.save_model:
             # Save the trained model_LSTM
@@ -149,19 +125,11 @@ if __name__ == "__main__":
         dropout = 0.1
         max_seq_length = 100  # Adjust based on maximum transcription length
 
-        # Instantiate the model_LSTM
-        model_transformer = TransformerOCR(
-            img_feature_dim=512,  # From CNNFeatureExtractor
-            img_feature_seq_len=fixed_width // (2 ** 4),  # Assuming 4 max-pooling layers
-            d_model=hidden_size,
-            nhead=nhead,
-            num_encoder_layers=num_transformer_layers,
-            num_decoder_layers=num_transformer_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            num_classes=num_classes,
-            max_seq_length=max_seq_length
-        ).to(device)
+        # Instantiate the model_transformer
+        model_transformer = TransformerOCR(input_dim=512, output_dim=num_classes, d_model=hidden_size, nhead=nhead,
+                                           num_encoder_layers=num_transformer_layers,
+                                           num_decoder_layers=num_transformer_layers, dim_feedforward=dim_feedforward,
+                                           dropout=dropout).to(device)
 
         print(model_transformer)
 
@@ -174,21 +142,23 @@ if __name__ == "__main__":
         optimizer = optim.Adam(model_transformer.parameters(), lr=learning_rate)
 
         # Instantiate the Dataset and DataLoader
-        dataset = OCRDataset(
-            images_path= IMAGES_PATH,
-            encoded_transcriptions_path=ENCODED_TRANSCRIPTION_PATH,
-            transform=None  # No additional transforms needed as preprocessing is done
-        )
+        # dataset = OCRDataset(
+        #     images_path= IMAGES_PATH,
+        #     encoded_transcriptions_path=ENCODED_TRANSCRIPTION_PATH,
+        #     transform=None  # No additional transforms needed as preprocessing is done
+        # )
+        #
+        # # batch_size = 16  # Adjust based on memory constraints
+        # dataloader = DataLoader(
+        #     dataset,
+        #     batch_size=batch_size,
+        #     shuffle=True,
+        #     collate_fn=collate_fn
+        # )
 
-        # batch_size = 16  # Adjust based on memory constraints
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=collate_fn
-        )
+        dataloader = get_dataloader(model_type='Transformer', batch_size=batch_size)
 
-        train_transformer(model_transformer, dataloader, criterion, optimizer, num_epochs=num_epochs, char_to_idx=char_to_idx, max_seq_length=max_seq_length, num_classes=num_classes)
+        train_transformer(model_transformer, dataloader, criterion, optimizer, num_epochs=num_epochs)
 
         if args.save_model:
             # Save the trained model
@@ -196,18 +166,10 @@ if __name__ == "__main__":
             print("Model saved successfully.")
 
         if args.load_model:
-            model_transformer = TransformerOCR(
-                img_feature_dim=512,  # From CNNFeatureExtractor
-                img_feature_seq_len=fixed_width // (2 ** 4),  # Assuming 4 max-pooling layers
-                d_model=hidden_size,
-                nhead=nhead,
-                num_encoder_layers=num_transformer_layers,
-                num_decoder_layers=num_transformer_layers,
-                dim_feedforward=dim_feedforward,
-                dropout=dropout,
-                num_classes=num_classes,
-                max_seq_length=max_seq_length
-            ).to(device)
+            model_transformer = TransformerOCR(512, d_model=hidden_size, nhead=nhead,
+                                               num_encoder_layers=num_transformer_layers,
+                                               num_decoder_layers=num_transformer_layers,
+                                               dim_feedforward=dim_feedforward, dropout=dropout).to(device)
 
             model_transformer.load_state_dict(torch.load(os.path.join(TRANSFORMER_MODEL_SAVE_PATH, 'transformer_ocr_model.pth')))
             model_transformer.eval()
