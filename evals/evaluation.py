@@ -1,5 +1,8 @@
 import os
 import torch
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import numpy as np
 
 from data_loaders.data_loader import get_dataloader
 from models.ocr_LSTM import device, OCRModel
@@ -23,24 +26,30 @@ def decode_transcription(encoded_seq, idx_to_char_mapping):
     return ''.join([idx_to_char_mapping.get(idx, '<UNK>') for idx in encoded_seq])
 
 
-def evaluate(model, dataloader, idx_to_char):
+def evaluate(model, dataloader, idx_to_char, device, num_samples=5):
     """
-    Evaluates the model's accuracy on the provided dataloader.
+    Evaluates the model's accuracy on the provided dataloader and collects sample predictions.
 
     Args:
         model (torch.nn.Module): The trained model to evaluate.
         dataloader (torch.utils.data.DataLoader): DataLoader for evaluation data.
         idx_to_char (Dict[int, str]): Mapping from index to character.
+        device (torch.device): Device to perform computation on.
+        num_samples (int, optional): Number of sample predictions to collect. Defaults to 5.
 
     Returns:
         float: Evaluation accuracy in percentage.
+        List[Tuple[torch.Tensor, str, str]]: List of tuples containing image tensor, predicted text, and target text.
     """
     model.eval()
     total = 0
     correct = 0
+    samples_collected = 0
+    sample_predictions = []
 
     with torch.no_grad():
-        for images, transcriptions, input_lengths, target_lengths in dataloader:
+        # Wrap the dataloader with tqdm for a progress bar
+        for images, transcriptions, input_lengths, target_lengths in tqdm(dataloader, desc="Evaluating", unit="batch"):
             images = images.to(device)
             transcriptions = transcriptions.to(device)
             input_lengths = input_lengths.to(device)
@@ -59,7 +68,7 @@ def evaluate(model, dataloader, idx_to_char):
             # Reconstruct target sequences based on target_lengths
             target_lengths = target_lengths.cpu().numpy()
             start_idx = 0
-            for pred, length in zip(preds, target_lengths):
+            for i, (pred, length) in enumerate(zip(preds, target_lengths)):
                 end_idx = start_idx + length
                 target_seq = transcriptions[start_idx:end_idx]
                 start_idx = end_idx
@@ -71,9 +80,57 @@ def evaluate(model, dataloader, idx_to_char):
                     correct += 1
                 total += 1
 
+                # Collect sample predictions
+                if samples_collected < num_samples:
+                    image = images[i].cpu()
+                    sample_predictions.append((image, pred_text, target_text))
+                    samples_collected += 1
+
     accuracy = (correct / total) * 100 if total > 0 else 0
     print(f"Evaluation Accuracy: {accuracy:.2f}%")
-    return accuracy
+    return accuracy, sample_predictions
+
+
+def plot_sample_predictions(sample_predictions):
+    """
+    Plots sample predictions alongside their target transcriptions.
+
+    Args:
+        sample_predictions (List[Tuple[torch.Tensor, str, str]]): List of tuples containing image tensor, predicted text, and target text.
+    """
+    num_samples = len(sample_predictions)
+    plt.figure(figsize=(15, 3 * num_samples))
+    for idx, (image, pred, target) in enumerate(sample_predictions):
+        image_np = image.numpy()
+        # If the image has a single channel, squeeze it
+        if image_np.shape[0] == 1:
+            image_np = np.squeeze(image_np, axis=0)
+            plt.imshow(image_np, cmap='gray')
+        else:
+            # If the image has multiple channels, transpose it for plotting
+            image_np = np.transpose(image_np, (1, 2, 0))
+            plt.imshow(image_np)
+
+        plt.title(f"Sample {idx + 1}\nPredicted: {pred} | Target: {target}")
+        plt.axis('off')
+        plt.show()
+
+
+def plot_accuracy(accuracy):
+    """
+    Plots the evaluation accuracy.
+
+    Args:
+        accuracy (float): The accuracy percentage to plot.
+    """
+    plt.figure(figsize=(6, 6))
+    plt.bar(['Accuracy'], [accuracy], color='skyblue')
+    plt.ylim(0, 100)
+    plt.ylabel('Accuracy (%)')
+    plt.title('Model Evaluation Accuracy')
+    for index, value in enumerate([accuracy]):
+        plt.text(index, value + 1, f"{value:.2f}%", ha='center')
+    plt.show()
 
 
 def load_model(model_class, fixed_height, fixed_width, num_classes, hidden_size, num_lstm_layers, dropout,
@@ -179,7 +236,17 @@ def main_evaluation():
     data_loader = get_dataloader(model_type='LSTM', batch_size=16)
     print("OCR LSTM Model loaded and set to evaluation mode.")
 
-    evaluate(model_LSTM, data_loader, mappings['idx_to_char'])
+    # Evaluate the model and get sample predictions
+    accuracy, sample_predictions = evaluate(model_LSTM, data_loader, mappings['idx_to_char'], device)
+
+    # Plot the evaluation accuracy
+    plot_accuracy(accuracy)
+
+    # Plot sample predictions
+    if sample_predictions:
+        plot_sample_predictions(sample_predictions)
+    else:
+        print("No sample predictions to display.")
 
 
 if __name__ == "__main__":
