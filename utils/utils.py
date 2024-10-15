@@ -16,7 +16,7 @@ root_dir = get_project_root()
 IMAGES_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/preprocessed_images_Transformer.npy')
 ENCODED_TRANSCRIPTION_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/encoded_transcriptions_Transformer.json')
 LSTM_MODEL_SAVE_PATH = os.path.join(root_dir, 'models/LSTM')
-TRANSFORMER_MODEL_SAVE_PATH = os.path.join(root_dir, 'models/TRANSFORMER')
+TRANSFORMER_MODEL_SAVE_PATH = os.path.join(root_dir, 'models/transformer')
 MAPPINGS_PATH_TRANSFORMER = os.path.join(root_dir, 'data_preprocessing/mappings_Transformer.json')
 MAPPINGS_PATH_LSTM = os.path.join(root_dir, 'data_preprocessing/mappings_LSTM.json')
 
