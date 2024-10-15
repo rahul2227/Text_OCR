@@ -1,16 +1,9 @@
-# data_loader.py
-
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 import numpy as np
 import json
 import os
-import matplotlib.pyplot as plt
-
-from PIL import Image
-
-# Assuming utils/utils.py contains get_project_root function
 from utils.utils import get_project_root
 
 
